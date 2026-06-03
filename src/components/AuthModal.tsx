@@ -17,6 +17,8 @@ export type DemoProfile = {
 
 type View = "login" | "register" | "2faCode" | "success";
 
+type LoadingKind = "register" | "login" | "verify" | "resend";
+
 type Props = {
   open: boolean;
   initialView: View;
@@ -24,11 +26,44 @@ type Props = {
   onAuthed: (profile: DemoProfile) => void;
 };
 
+const LOADING_COPY: Record<
+  LoadingKind,
+  { title: string; sub: string }
+> = {
+  register: {
+    title: "Creating your account…",
+    sub: "Setting up your profile and sending a verification code to your email.",
+  },
+  login: {
+    title: "Signing you in…",
+    sub: "Checking your credentials and sending a verification code to your email.",
+  },
+  verify: {
+    title: "Verifying your code…",
+    sub: "Unlocking demo access — just a moment.",
+  },
+  resend: {
+    title: "Sending a new code…",
+    sub: "Check your inbox for another 6-digit verification code.",
+  },
+};
+
 function maskEmail(e: string): string {
   const p = e.split("@");
   if (p.length < 2) return e;
   const n = p[0];
   return `${n.length <= 2 ? n[0] + "*" : n.slice(0, 2) + "***"}@${p[1]}`;
+}
+
+function AuthLoadingPanel({ kind }: { kind: LoadingKind }) {
+  const copy = LOADING_COPY[kind];
+  return (
+    <div className="auth-loading-panel" role="status" aria-live="polite">
+      <div className="auth-spinner" aria-hidden="true" />
+      <div className="auth-loading-title">{copy.title}</div>
+      <div className="auth-loading-sub">{copy.sub}</div>
+    </div>
+  );
 }
 
 export default function AuthModal({
@@ -40,16 +75,26 @@ export default function AuthModal({
   const [view, setView] = useState<View>(initialView);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadingKind, setLoadingKind] = useState<LoadingKind>("login");
   const [idToken, setIdToken] = useState<string | null>(null);
   const [pendingProfile, setPendingProfile] = useState<DemoProfile | null>(null);
   const [masked, setMasked] = useState("");
   const codeRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
-    if (open) setView(initialView);
+    if (open) {
+      setView(initialView);
+      setError("");
+      setBusy(false);
+    }
   }, [open, initialView]);
 
   const clearError = () => setError("");
+
+  const handleClose = () => {
+    if (busy) return;
+    onClose();
+  };
 
   const afterFirebaseAuth = useCallback(
     async (token: string, profile: DemoProfile, isNew: boolean) => {
@@ -122,6 +167,7 @@ export default function AuthModal({
       setError("Please accept the access & contact notice to continue.");
       return;
     }
+    setLoadingKind("register");
     setBusy(true);
     try {
       const cred = await createUserWithEmailAndPassword(
@@ -160,6 +206,7 @@ export default function AuthModal({
       setError("Enter your email and password.");
       return;
     }
+    setLoadingKind("login");
     setBusy(true);
     try {
       const cred = await signInWithEmailAndPassword(
@@ -199,6 +246,7 @@ export default function AuthModal({
       setError("Enter the full 6-digit code.");
       return;
     }
+    setLoadingKind("verify");
     setBusy(true);
     try {
       const auth = getFirebaseAuth();
@@ -235,6 +283,41 @@ export default function AuthModal({
     }
   };
 
+  const resendCode = async () => {
+    clearError();
+    setLoadingKind("resend");
+    setBusy(true);
+    try {
+      const auth = getFirebaseAuth();
+      let token = idToken;
+      if (auth.currentUser) {
+        token = await auth.currentUser.getIdToken(true);
+      }
+      if (!token) {
+        setError("Session expired. Please sign in again.");
+        return;
+      }
+      const res = await fetch("/api/auth/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ idToken: token }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? "Could not resend code");
+      }
+      codeRefs.current.forEach((input) => {
+        if (input) input.value = "";
+      });
+      codeRefs.current[0]?.focus();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not resend code");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const finish = () => {
     if (pendingProfile) onAuthed(pendingProfile);
     onClose();
@@ -252,7 +335,7 @@ export default function AuthModal({
   return (
     <div
       className={`overlay${open ? " show" : ""}`}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.target === e.currentTarget && handleClose()}
     >
       <div className="modal">
         <div className="modal-head">
@@ -268,170 +351,187 @@ export default function AuthModal({
               <div className="mh-sub">Secure demo access portal</div>
             </div>
           </div>
-          <button type="button" className="mh-close" onClick={onClose}>
+          <button
+            type="button"
+            className="mh-close"
+            onClick={handleClose}
+            disabled={busy}
+            aria-disabled={busy}
+          >
             &times;
           </button>
         </div>
         <div className="modal-body">
           {view === "login" && (
             <div className="mview show">
-              <div className="m-h">Welcome back</div>
-              <div className="m-p">Sign in to access the BookCover demos.</div>
-              {error && <div className="m-error show">{error}</div>}
-              <div className="field">
-                <label>Email address</label>
-                <input type="email" id="loginEmail" placeholder="you@company.com" />
-              </div>
-              <div className="field">
-                <label>Password</label>
-                <input type="password" id="loginPass" placeholder="Your password" />
-              </div>
-              <button
-                type="button"
-                className="btn-p full-btn"
-                onClick={doLogin}
-                disabled={busy}
-              >
-                Continue
-              </button>
-              <div className="m-foot">
-                New here?{" "}
-                <a onClick={() => { clearError(); setView("register"); }}>Create an account</a>
-              </div>
+              {busy ? (
+                <AuthLoadingPanel kind={loadingKind} />
+              ) : (
+                <>
+                  <div className="m-h">Welcome back</div>
+                  <div className="m-p">Sign in to access the BookCover demos.</div>
+                  {error && <div className="m-error show">{error}</div>}
+                  <div className="field">
+                    <label>Email address</label>
+                    <input type="email" id="loginEmail" placeholder="you@company.com" />
+                  </div>
+                  <div className="field">
+                    <label>Password</label>
+                    <input type="password" id="loginPass" placeholder="Your password" />
+                  </div>
+                  <button type="button" className="btn-p full-btn" onClick={doLogin}>
+                    Continue
+                  </button>
+                  <div className="m-foot">
+                    New here?{" "}
+                    <a
+                      onClick={() => {
+                        clearError();
+                        setView("register");
+                      }}
+                    >
+                      Create an account
+                    </a>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           {view === "register" && (
             <div className="mview show">
-              <div className="m-h">Create your account</div>
-              <div className="m-p">
-                Tell us a little about you and your business. Demo access is limited to
-                registered users.
-              </div>
-              {error && <div className="m-error show">{error}</div>}
-              <div className="field half">
-                <label>
-                  First name <span className="req">*</span>
-                </label>
-                <input type="text" id="regFirst" placeholder="Jane" />
-              </div>
-              <div className="field half">
-                <label>
-                  Last name <span className="req">*</span>
-                </label>
-                <input type="text" id="regLast" placeholder="Doe" />
-              </div>
-              <div className="field">
-                <label>
-                  Work email <span className="req">*</span>
-                </label>
-                <input type="email" id="regEmail" placeholder="jane@company.com" />
-              </div>
-              <div className="field">
-                <label>
-                  Mobile phone <span className="req">*</span>
-                </label>
-                <input type="tel" id="regPhone" placeholder="(555) 123-4567" />
-              </div>
-              <div className="field">
-                <label>
-                  Company / Organization <span className="req">*</span>
-                </label>
-                <input type="text" id="regCompany" placeholder="Acme Health" />
-              </div>
-              <div className="field">
-                <label>Job title</label>
-                <input type="text" id="regTitle" placeholder="Director of Retention" />
-              </div>
-              <div className="field">
-                <label>
-                  Which best describes your business? <span className="req">*</span>
-                </label>
-                <select id="regBizType" defaultValue="">
-                  <option value="">Select one…</option>
-                  <option value="Carrier">Carrier / Health Plan</option>
-                  <option value="FMO">FMO (Field Marketing Organization)</option>
-                  <option value="Independent Agent">Independent Agent</option>
-                  <option value="Consultant">Consultant</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>
-                  Create a password <span className="req">*</span>
-                </label>
-                <input type="password" id="regPass" placeholder="At least 6 characters" />
-              </div>
-              <div className="consent">
-                <input type="checkbox" id="regConsent" />
-                <label style={{ fontWeight: 400, fontSize: 12, color: "var(--slate)", margin: 0 }}>
-                  I agree that my access to the BookCover demos may be recorded, and I
-                  consent to being contacted about BookCover.
-                </label>
-              </div>
-              <button
-                type="button"
-                className="btn-p full-btn"
-                onClick={doRegister}
-                disabled={busy}
-              >
-                Create Account &amp; Verify
-              </button>
-              <div className="m-foot">
-                Already registered?{" "}
-                <a onClick={() => { clearError(); setView("login"); }}>Sign in</a>
-              </div>
+              {busy ? (
+                <AuthLoadingPanel kind={loadingKind} />
+              ) : (
+                <>
+                  <div className="m-h">Create your account</div>
+                  <div className="m-p">
+                    Tell us a little about you and your business. Demo access is limited to
+                    registered users.
+                  </div>
+                  {error && <div className="m-error show">{error}</div>}
+                  <div className="field half">
+                    <label>
+                      First name <span className="req">*</span>
+                    </label>
+                    <input type="text" id="regFirst" placeholder="Jane" />
+                  </div>
+                  <div className="field half">
+                    <label>
+                      Last name <span className="req">*</span>
+                    </label>
+                    <input type="text" id="regLast" placeholder="Doe" />
+                  </div>
+                  <div className="field">
+                    <label>
+                      Work email <span className="req">*</span>
+                    </label>
+                    <input type="email" id="regEmail" placeholder="jane@company.com" />
+                  </div>
+                  <div className="field">
+                    <label>
+                      Mobile phone <span className="req">*</span>
+                    </label>
+                    <input type="tel" id="regPhone" placeholder="(555) 123-4567" />
+                  </div>
+                  <div className="field">
+                    <label>
+                      Company / Organization <span className="req">*</span>
+                    </label>
+                    <input type="text" id="regCompany" placeholder="Acme Health" />
+                  </div>
+                  <div className="field">
+                    <label>Job title</label>
+                    <input type="text" id="regTitle" placeholder="Director of Retention" />
+                  </div>
+                  <div className="field">
+                    <label>
+                      Which best describes your business? <span className="req">*</span>
+                    </label>
+                    <select id="regBizType" defaultValue="">
+                      <option value="">Select one…</option>
+                      <option value="Carrier">Carrier / Health Plan</option>
+                      <option value="FMO">FMO (Field Marketing Organization)</option>
+                      <option value="Independent Agent">Independent Agent</option>
+                      <option value="Consultant">Consultant</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>
+                      Create a password <span className="req">*</span>
+                    </label>
+                    <input type="password" id="regPass" placeholder="At least 6 characters" />
+                  </div>
+                  <div className="consent">
+                    <input type="checkbox" id="regConsent" />
+                    <label
+                      style={{
+                        fontWeight: 400,
+                        fontSize: 12,
+                        color: "var(--slate)",
+                        margin: 0,
+                      }}
+                    >
+                      I agree that my access to the BookCover demos may be recorded, and I
+                      consent to being contacted about BookCover.
+                    </label>
+                  </div>
+                  <button type="button" className="btn-p full-btn" onClick={doRegister}>
+                    Create Account &amp; Verify
+                  </button>
+                  <div className="m-foot">
+                    Already registered?{" "}
+                    <a
+                      onClick={() => {
+                        clearError();
+                        setView("login");
+                      }}
+                    >
+                      Sign in
+                    </a>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           {view === "2faCode" && (
             <div className="mview show">
-              <div className="m-h">Enter your code</div>
-              <div className="m-p">
-                We sent a 6-digit code to <strong>{masked}</strong>.
-              </div>
-              {error && <div className="m-error show">{error}</div>}
-              <div className="code-inputs">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <input
-                    key={i}
-                    ref={(el) => {
-                      codeRefs.current[i] = el;
-                    }}
-                    className="code-box"
-                    maxLength={1}
-                    inputMode="numeric"
-                    onKeyUp={(e) => {
-                      const t = e.target as HTMLInputElement;
-                      if (t.value && i < 5) codeRefs.current[i + 1]?.focus();
-                    }}
-                  />
-                ))}
-              </div>
-              <button
-                type="button"
-                className="btn-p full-btn"
-                onClick={verifyCode}
-                disabled={busy}
-              >
-                Verify &amp; Unlock Demos
-              </button>
-              <div className="m-foot">
-                <a
-                  onClick={async () => {
-                    if (!idToken) return;
-                    setBusy(true);
-                    await fetch("/api/auth/send-otp", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ idToken }),
-                    });
-                    setBusy(false);
-                  }}
-                >
-                  Resend code
-                </a>
-              </div>
+              {busy ? (
+                <AuthLoadingPanel kind={loadingKind} />
+              ) : (
+                <>
+                  <div className="m-h">Enter your code</div>
+                  <div className="m-p">
+                    We sent a 6-digit code to <strong>{masked}</strong>.
+                  </div>
+                  {error && <div className="m-error show">{error}</div>}
+                  <div className="code-inputs">
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <input
+                        key={i}
+                        ref={(el) => {
+                          codeRefs.current[i] = el;
+                        }}
+                        className="code-box"
+                        maxLength={1}
+                        inputMode="numeric"
+                        onKeyUp={(e) => {
+                          const t = e.target as HTMLInputElement;
+                          if (t.value && i < 5) codeRefs.current[i + 1]?.focus();
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <button type="button" className="btn-p full-btn" onClick={verifyCode}>
+                    Verify &amp; Unlock Demos
+                  </button>
+                  <div className="m-foot">
+                    <a onClick={resendCode}>Resend code</a>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

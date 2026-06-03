@@ -36,13 +36,17 @@ function clearAuthQueryParams() {
   if (
     !url.searchParams.has("login") &&
     !url.searchParams.has("return") &&
-    !url.searchParams.has("gate_bounce")
+    !url.searchParams.has("gate_bounce") &&
+    !url.searchParams.has("handoff_failed") &&
+    !url.searchParams.has("demo")
   ) {
     return;
   }
   url.searchParams.delete("login");
   url.searchParams.delete("return");
   url.searchParams.delete("gate_bounce");
+  url.searchParams.delete("handoff_failed");
+  url.searchParams.delete("demo");
   window.history.replaceState({}, "", url.pathname + url.search + url.hash);
 }
 
@@ -105,14 +109,22 @@ export default function LandingPage() {
     return true;
   }, []);
 
-  const openLaunchFailure = useCallback((which: DemoKey) => {
-    setLaunchError(
-      "We couldn't open the demo. Sign in again to refresh your access, and confirm DEMO_JWT_SECRET matches on landing and the demo project."
-    );
-    setPendingDemo(which);
-    setAuthView("login");
-    setAuthOpen(true);
-  }, []);
+  const openLaunchFailure = useCallback(
+    (which: DemoKey, signedIn: boolean) => {
+      setLaunching(null);
+      setLaunchError(
+        signedIn
+          ? "The demo could not verify your access token. Sign out, sign in again with email verification, then try Launch. If this persists, confirm DEMO_JWT_SECRET is identical on landing and the demo Vercel project (no extra spaces)."
+          : "We couldn't open the demo. Sign in and complete email verification, then try again."
+      );
+      if (!signedIn) {
+        setPendingDemo(which);
+        setAuthView("login");
+        setAuthOpen(true);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     refreshSession();
@@ -122,6 +134,17 @@ export default function LandingPage() {
     let cancelled = false;
 
     (async () => {
+      if (searchParams.get("handoff_failed") === "1") {
+        const which =
+          searchParams.get("demo") === "agent" ? "agent" : "member";
+        clearAuthQueryParams();
+        const existing = await refreshSession();
+        if (!cancelled) {
+          openLaunchFailure(which, !!existing);
+        }
+        return;
+      }
+
       const wantsLogin = searchParams.get("login") === "1";
       const hasReturn = Boolean(searchParams.get("return"));
       if (!wantsLogin && !hasReturn) return;
@@ -134,7 +157,7 @@ export default function LandingPage() {
         clearAuthQueryParams();
 
         if (bounced && shouldAbortGateRetry()) {
-          openLaunchFailure(returnTarget.which);
+          openLaunchFailure(returnTarget.which, true);
           return;
         }
         if (bounced) markGateRetry();
@@ -143,8 +166,7 @@ export default function LandingPage() {
         const ok = await goToDemo(returnTarget.url);
         if (cancelled) return;
         if (!ok) {
-          setLaunching(null);
-          openLaunchFailure(returnTarget.which);
+          openLaunchFailure(returnTarget.which, true);
         }
         return;
       }
@@ -194,12 +216,10 @@ export default function LandingPage() {
       });
       const ok = await goToDemo(url);
       if (!ok) {
-        setLaunching(null);
-        openLaunchFailure(which);
+        openLaunchFailure(which, true);
       }
     } catch {
-      setLaunching(null);
-      openLaunchFailure(which);
+      openLaunchFailure(which, !!profile);
     }
   };
 
@@ -212,10 +232,7 @@ export default function LandingPage() {
     if (returnTarget) {
       setLaunching(returnTarget.which);
       const ok = await goToDemo(returnTarget.url);
-      if (!ok) {
-        setLaunching(null);
-        setAuthOpen(true);
-      }
+      if (!ok) openLaunchFailure(returnTarget.which, true);
       return;
     }
     if (pendingDemo) {

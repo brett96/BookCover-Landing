@@ -1,10 +1,17 @@
 export const DEMO_HANDOFF_PARAM = "bc_handoff";
 export const GATE_FAIL_KEY = "bc_demo_gate_failed";
+export const DEMO_HANDOFF_API_PATH = "/api/demo-auth/handoff";
 
+/** Navigate to the demo handoff API (sets __bc_demo_jwt) then redirects into the demo. */
 export function demoLaunchUrl(base: string, token: string): string {
-  const u = new URL(base);
-  u.searchParams.set(DEMO_HANDOFF_PARAM, token);
-  return u.href;
+  const target = new URL(base);
+  const handoff = new URL(DEMO_HANDOFF_API_PATH, target.origin);
+  handoff.searchParams.set(DEMO_HANDOFF_PARAM, token);
+  const dest = target.pathname + target.search;
+  if (dest && dest !== "/") {
+    handoff.searchParams.set("dest", dest);
+  }
+  return handoff.href;
 }
 
 export async function fetchHandoffToken(): Promise<string | null> {

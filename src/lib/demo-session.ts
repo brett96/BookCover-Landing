@@ -29,27 +29,50 @@ export async function getDemoSessionFromCookies(): Promise<DemoSessionUser | nul
   return verifyDemoSessionCookie(jar.get(DEMO_COOKIE)?.value);
 }
 
-function cookieBase(maxAgeSec: number) {
+/** Only set Domain=.cercalabs.com when the response is served from that host tree. */
+export function resolveCookieDomain(requestHost?: string): string | undefined {
+  const domain = COOKIE_DOMAIN?.trim();
+  if (!domain || process.env.NODE_ENV !== "production") return undefined;
+  const host = (requestHost ?? "").toLowerCase();
+  if (host === "cercalabs.com" || host.endsWith(".cercalabs.com")) {
+    return domain;
+  }
+  return undefined;
+}
+
+function cookieBase(maxAgeSec: number, requestHost?: string) {
   const isProd = process.env.NODE_ENV === "production";
+  const domain = resolveCookieDomain(requestHost);
   return {
     httpOnly: true,
     secure: isProd,
     sameSite: "lax" as const,
     path: "/",
     maxAge: maxAgeSec,
-    ...(isProd && COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
+    ...(domain ? { domain } : {}),
   };
 }
 
-export function demoSessionCookieOptions(maxAgeSec: number) {
-  return { name: DEMO_COOKIE, ...cookieBase(maxAgeSec) };
+export function demoSessionCookieOptions(
+  maxAgeSec: number,
+  requestHost?: string
+) {
+  return { name: DEMO_COOKIE, ...cookieBase(maxAgeSec, requestHost) };
 }
 
-export function demoJwtCookieOptions(maxAgeSec: number) {
-  return { name: DEMO_JWT_COOKIE, ...cookieBase(maxAgeSec) };
+export function demoJwtCookieOptions(maxAgeSec: number, requestHost?: string) {
+  return { name: DEMO_JWT_COOKIE, ...cookieBase(maxAgeSec, requestHost) };
 }
 
 export async function createDemoSessionCookie(idToken: string): Promise<string> {
   const expiresIn = SESSION_MAX_AGE_MS;
   return getAdminAuth().createSessionCookie(idToken, { expiresIn });
+}
+
+export function requestHostFrom(req: Request): string {
+  try {
+    return new URL(req.url).hostname;
+  } catch {
+    return "";
+  }
 }

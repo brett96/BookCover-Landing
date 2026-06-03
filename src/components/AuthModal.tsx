@@ -79,6 +79,7 @@ export default function AuthModal({
       const otpRes = await fetch("/api/auth/send-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ idToken: token }),
       });
       if (!otpRes.ok) {
@@ -167,7 +168,9 @@ export default function AuthModal({
         pass
       );
       const token = await cred.user.getIdToken();
-      const sessionRes = await fetch("/api/auth/session");
+      const sessionRes = await fetch("/api/auth/session", {
+        credentials: "include",
+      });
       const session = await sessionRes.json();
       const p = session.profile as Record<string, string> | null;
       await afterFirebaseAuth(
@@ -196,19 +199,34 @@ export default function AuthModal({
       setError("Enter the full 6-digit code.");
       return;
     }
-    if (!idToken) {
-      setError("Session expired. Please sign in again.");
-      return;
-    }
     setBusy(true);
     try {
+      const auth = getFirebaseAuth();
+      let token = idToken;
+      if (auth.currentUser) {
+        token = await auth.currentUser.getIdToken(true);
+      }
+      if (!token) {
+        setError("Session expired. Please sign in again.");
+        return;
+      }
       const res = await fetch("/api/auth/verify-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idToken, code }),
+        credentials: "include",
+        body: JSON.stringify({ idToken: token, code }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Verification failed");
+      const p = (j.profile ?? {}) as Record<string, string>;
+      if (pendingProfile) {
+        setPendingProfile({
+          first: p.first ?? pendingProfile.first,
+          last: p.last ?? pendingProfile.last,
+          email: j.email ?? pendingProfile.email,
+          biz: p.biz ?? pendingProfile.biz,
+        });
+      }
       setView("success");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Verification failed");

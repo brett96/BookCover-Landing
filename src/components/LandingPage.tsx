@@ -20,20 +20,22 @@ export default function LandingPage() {
 
   const loggedIn = !!profile;
 
-  const refreshSession = useCallback(async () => {
-    const res = await fetch("/api/auth/session");
+  const refreshSession = useCallback(async (): Promise<DemoProfile | null> => {
+    const res = await fetch("/api/auth/session", { credentials: "include" });
     const data = await res.json();
-    if (data.authenticated && data.profile) {
-      const p = data.profile as Record<string, string>;
-      setProfile({
-        first: p.first ?? "Member",
-        last: p.last ?? "",
-        email: data.email ?? p.email ?? "",
-        biz: p.biz ?? "",
-      });
-    } else {
+    if (!data.authenticated) {
       setProfile(null);
+      return null;
     }
+    const p = (data.profile ?? {}) as Record<string, string>;
+    const next: DemoProfile = {
+      first: p.first ?? data.email?.split("@")[0] ?? "Member",
+      last: p.last ?? "",
+      email: data.email ?? p.email ?? "",
+      biz: p.biz ?? "",
+    };
+    setProfile(next);
+    return next;
   }, []);
 
   useEffect(() => {
@@ -90,7 +92,7 @@ export default function LandingPage() {
   };
 
   const signOut = async () => {
-    await fetch("/api/auth/sign-out", { method: "POST" });
+    await fetch("/api/auth/sign-out", { method: "POST", credentials: "include" });
     setProfile(null);
   };
 

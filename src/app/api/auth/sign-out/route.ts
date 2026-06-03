@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
-import { demoSessionCookieOptions, demoJwtCookieOptions } from "@/lib/demo-session";
+import {
+  demoSessionCookieOptions,
+  demoJwtCookieOptions,
+  getDemoSessionFromCookies,
+  requestHostFrom,
+} from "@/lib/demo-session";
 import { recordUsageEvent } from "@/lib/tracking";
-import { getDemoSessionFromCookies } from "@/lib/demo-session";
 
 export async function POST(req: Request) {
   const session = await getDemoSessionFromCookies();
@@ -16,8 +20,9 @@ export async function POST(req: Request) {
       req
     );
   }
+  const host = requestHostFrom(req);
   const res = NextResponse.json({ ok: true });
-  res.cookies.set({ ...demoSessionCookieOptions(0), value: "", maxAge: 0 });
-  res.cookies.set({ ...demoJwtCookieOptions(0), value: "", maxAge: 0 });
+  res.cookies.set({ ...demoSessionCookieOptions(0, host), value: "", maxAge: 0 });
+  res.cookies.set({ ...demoJwtCookieOptions(0, host), value: "", maxAge: 0 });
   return res;
 }

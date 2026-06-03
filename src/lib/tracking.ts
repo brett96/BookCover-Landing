@@ -1,5 +1,10 @@
 import { UAParser } from "ua-parser-js";
-import { getAdminDb, isFirebaseAdminConfigured } from "@/lib/firebase/admin";
+import {
+  getAdminDb,
+  isFirebaseAdminConfigured,
+  isFirestoreNotFoundError,
+  FIRESTORE_SETUP_HINT,
+} from "@/lib/firebase/admin";
 
 export type SiteId = "landing" | "member" | "agent";
 
@@ -19,6 +24,14 @@ export type UsageEventInput = {
   city?: string;
   userAgent?: string;
 };
+
+function omitUndefined<T extends Record<string, unknown>>(obj: T): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
 
 export function parseRequestGeo(req: Request): {
   ip?: string;
@@ -69,7 +82,7 @@ export async function recordUsageEvent(
   }
   const geo = req ? parseRequestGeo(req) : {};
   const db = getAdminDb();
-  await db.collection("usageEvents").add({
+  const doc = omitUndefined({
     ...input,
     ...geo,
     path: input.path?.slice(0, 2048) ?? "",
@@ -79,6 +92,15 @@ export async function recordUsageEvent(
     properties: input.properties ?? {},
     occurredAt: new Date(),
   });
+  try {
+    await db.collection("usageEvents").add(doc);
+  } catch (err) {
+    if (isFirestoreNotFoundError(err)) {
+      console.error(`[track] ${FIRESTORE_SETUP_HINT}`);
+      return;
+    }
+    throw err;
+  }
 }
 
 export type DemoUserProfile = {
@@ -98,8 +120,9 @@ export async function saveDemoUserProfile(
 ): Promise<void> {
   if (!isFirebaseAdminConfigured()) return;
   const db = getAdminDb();
-  await db.collection("demoUsers").doc(uid).set(
-    { ...profile, updatedAt: new Date() },
-    { merge: true }
-  );
+  const doc = omitUndefined({
+    ...profile,
+    updatedAt: new Date(),
+  });
+  await db.collection("demoUsers").doc(uid).set(doc, { merge: true });
 }

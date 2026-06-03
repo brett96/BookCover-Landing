@@ -1,5 +1,10 @@
 import { createHash, randomInt } from "crypto";
-import { getAdminDb, isFirebaseAdminConfigured } from "@/lib/firebase/admin";
+import {
+  getAdminDb,
+  isFirebaseAdminConfigured,
+  isFirestoreNotFoundError,
+  FIRESTORE_SETUP_HINT,
+} from "@/lib/firebase/admin";
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -15,12 +20,19 @@ export function generateOtpCode(): string {
 export async function storeOtp(uid: string, code: string): Promise<void> {
   if (!isFirebaseAdminConfigured()) return;
   const db = getAdminDb();
-  await db.collection("otpCodes").doc(uid).set({
-    hash: hashCode(code, uid),
-    expiresAt: Date.now() + OTP_TTL_MS,
-    attempts: 0,
-    updatedAt: new Date(),
-  });
+  try {
+    await db.collection("otpCodes").doc(uid).set({
+      hash: hashCode(code, uid),
+      expiresAt: Date.now() + OTP_TTL_MS,
+      attempts: 0,
+      updatedAt: new Date(),
+    });
+  } catch (err) {
+    if (isFirestoreNotFoundError(err)) {
+      console.error(`[otp] ${FIRESTORE_SETUP_HINT}`);
+    }
+    throw err;
+  }
 }
 
 export async function verifyOtp(
@@ -35,7 +47,16 @@ export async function verifyOtp(
   }
   const db = getAdminDb();
   const ref = db.collection("otpCodes").doc(uid);
-  const snap = await ref.get();
+  let snap;
+  try {
+    snap = await ref.get();
+  } catch (err) {
+    if (isFirestoreNotFoundError(err)) {
+      console.error(`[otp] ${FIRESTORE_SETUP_HINT}`);
+      return { ok: false, reason: "Verification service unavailable." };
+    }
+    throw err;
+  }
   if (!snap.exists) {
     return { ok: false, reason: "No code found. Request a new one." };
   }

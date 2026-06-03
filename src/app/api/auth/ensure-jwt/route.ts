@@ -18,7 +18,11 @@ export async function POST(req: Request) {
   const jar = await cookies();
   const existing = jar.get(DEMO_JWT_COOKIE)?.value;
   if (existing && (await verifyDemoJwt(existing))) {
-    return NextResponse.json({ ok: true, alreadyHadJwt: true });
+    return NextResponse.json({
+      ok: true,
+      alreadyHadJwt: true,
+      token: existing,
+    });
   }
 
   const jwt = await signDemoJwt({ uid: session.uid, email: session.email });
@@ -31,7 +35,7 @@ export async function POST(req: Request) {
 
   const host = requestHostFrom(req);
   const maxAge = Math.floor(SESSION_MAX_AGE_MS / 1000);
-  const res = NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true, token: jwt });
   res.cookies.set({ ...demoJwtCookieOptions(maxAge, host), value: jwt });
   return res;
 }

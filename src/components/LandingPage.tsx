@@ -13,20 +13,37 @@ import { trackEvent } from "@/lib/analytics-client";
 
 type DemoKey = "member" | "agent";
 
+const HANDOFF_PARAM = "bc_handoff";
+
 function clearAuthQueryParams() {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has("login") && !url.searchParams.has("return")) return;
+  if (
+    !url.searchParams.has("login") &&
+    !url.searchParams.has("return") &&
+    !url.searchParams.has("gate_bounce")
+  ) {
+    return;
+  }
   url.searchParams.delete("login");
   url.searchParams.delete("return");
+  url.searchParams.delete("gate_bounce");
   window.history.replaceState({}, "", url.pathname + url.search + url.hash);
 }
 
-async function ensureDemoJwtCookie(): Promise<boolean> {
+async function fetchMemberHandoffToken(): Promise<string | null> {
   const res = await fetch("/api/auth/ensure-jwt", {
     method: "POST",
     credentials: "include",
   });
-  return res.ok;
+  if (!res.ok) return null;
+  const data = (await res.json()) as { token?: string };
+  return typeof data.token === "string" ? data.token : null;
+}
+
+function memberDemoLaunchUrl(base: string, token: string): string {
+  const u = new URL(base);
+  u.searchParams.set(HANDOFF_PARAM, token);
+  return u.href;
 }
 
 async function goToMemberDemo(url: string): Promise<boolean> {
@@ -35,10 +52,10 @@ async function goToMemberDemo(url: string): Promise<boolean> {
     sessionStorage.removeItem(loopKey);
     return false;
   }
-  const ready = await ensureDemoJwtCookie();
-  if (!ready) return false;
+  const token = await fetchMemberHandoffToken();
+  if (!token) return false;
   sessionStorage.setItem(loopKey, url);
-  window.location.assign(url);
+  window.location.assign(memberDemoLaunchUrl(url, token));
   return true;
 }
 
@@ -140,8 +157,11 @@ export default function LandingPage() {
       }
       return;
     }
-    const ready = await ensureDemoJwtCookie();
-    if (!ready) {
+    const res = await fetch("/api/auth/ensure-jwt", {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!res.ok) {
       setPendingDemo(which);
       setAuthView("login");
       setAuthOpen(true);

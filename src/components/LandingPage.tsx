@@ -21,6 +21,27 @@ function clearAuthQueryParams() {
   window.history.replaceState({}, "", url.pathname + url.search + url.hash);
 }
 
+async function ensureDemoJwtCookie(): Promise<boolean> {
+  const res = await fetch("/api/auth/ensure-jwt", {
+    method: "POST",
+    credentials: "include",
+  });
+  return res.ok;
+}
+
+async function goToMemberDemo(url: string): Promise<boolean> {
+  const loopKey = "bc_demo_return_attempt";
+  if (sessionStorage.getItem(loopKey)) {
+    sessionStorage.removeItem(loopKey);
+    return false;
+  }
+  const ready = await ensureDemoJwtCookie();
+  if (!ready) return false;
+  sessionStorage.setItem(loopKey, url);
+  window.location.assign(url);
+  return true;
+}
+
 export default function LandingPage() {
   const searchParams = useSearchParams();
   const returnTarget = useMemo(
@@ -70,9 +91,16 @@ export default function LandingPage() {
       if (cancelled) return;
 
       if (existing) {
+        const bounced = searchParams.get("gate_bounce") === "1";
         clearAuthQueryParams();
-        if (returnTarget) {
-          window.location.assign(returnTarget);
+        if (returnTarget && !bounced) {
+          const ok = await goToMemberDemo(returnTarget);
+          if (!ok) {
+            setAuthView("login");
+            setAuthOpen(true);
+          }
+        } else {
+          sessionStorage.removeItem("bc_demo_return_attempt");
         }
         return;
       }
@@ -103,6 +131,22 @@ export default function LandingPage() {
     await trackEvent("demo_launch", {
       properties: { demo: which, url },
     });
+    if (which === "member") {
+      const ok = await goToMemberDemo(url);
+      if (!ok) {
+        setPendingDemo(which);
+        setAuthView("login");
+        setAuthOpen(true);
+      }
+      return;
+    }
+    const ready = await ensureDemoJwtCookie();
+    if (!ready) {
+      setPendingDemo(which);
+      setAuthView("login");
+      setAuthOpen(true);
+      return;
+    }
     window.location.assign(url);
   };
 
@@ -112,7 +156,8 @@ export default function LandingPage() {
     clearAuthQueryParams();
 
     if (returnTarget) {
-      window.location.assign(returnTarget);
+      const ok = await goToMemberDemo(returnTarget);
+      if (!ok) setAuthOpen(true);
       return;
     }
     if (pendingDemo) {

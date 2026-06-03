@@ -16,8 +16,11 @@ export async function GET() {
   }
 
   if (!session) {
-    return NextResponse.json({ authenticated: false });
+    return NextResponse.json({ authenticated: false, hasJwt: false });
   }
+
+  const jar = await cookies();
+  const jwtValid = await verifyDemoJwt(jar.get(DEMO_JWT_COOKIE)?.value);
 
   let profile: Record<string, unknown> | null = null;
   if (isFirebaseAdminConfigured()) {
@@ -34,6 +37,7 @@ export async function GET() {
 
   return NextResponse.json({
     authenticated: true,
+    hasJwt: !!jwtValid,
     uid: session.uid,
     email: session.email,
     profile: profile ?? { email: session.email },

@@ -22,6 +22,7 @@ type LoadingKind = "register" | "login" | "verify" | "resend";
 type Props = {
   open: boolean;
   initialView: View;
+  redirectAfterAuth?: string | null;
   onClose: () => void;
   onAuthed: (profile: DemoProfile) => void;
 };
@@ -69,6 +70,7 @@ function AuthLoadingPanel({ kind }: { kind: LoadingKind }) {
 export default function AuthModal({
   open,
   initialView,
+  redirectAfterAuth,
   onClose,
   onAuthed,
 }: Props) {
@@ -267,13 +269,16 @@ export default function AuthModal({
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Verification failed");
       const p = (j.profile ?? {}) as Record<string, string>;
-      if (pendingProfile) {
-        setPendingProfile({
-          first: p.first ?? pendingProfile.first,
-          last: p.last ?? pendingProfile.last,
-          email: j.email ?? pendingProfile.email,
-          biz: p.biz ?? pendingProfile.biz,
-        });
+      const verifiedProfile: DemoProfile = {
+        first: p.first ?? pendingProfile?.first ?? "Member",
+        last: p.last ?? pendingProfile?.last ?? "",
+        email: j.email ?? pendingProfile?.email ?? "",
+        biz: p.biz ?? pendingProfile?.biz ?? "",
+      };
+      setPendingProfile(verifiedProfile);
+      if (redirectAfterAuth) {
+        onAuthed(verifiedProfile);
+        return;
       }
       setView("success");
     } catch (e) {

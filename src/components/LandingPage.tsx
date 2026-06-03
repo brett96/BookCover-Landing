@@ -1,16 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AuthModal, { type DemoProfile } from "@/components/AuthModal";
 import PreviewReel from "@/components/PreviewReel";
-import { MEMBER_DEMO_URL, AGENT_DEMO_URL } from "@/lib/constants";
+import {
+  MEMBER_DEMO_URL,
+  AGENT_DEMO_URL,
+  resolveMemberDemoReturn,
+} from "@/lib/constants";
 import { trackEvent } from "@/lib/analytics-client";
 
 type DemoKey = "member" | "agent";
 
+function clearAuthQueryParams() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("login") && !url.searchParams.has("return")) return;
+  url.searchParams.delete("login");
+  url.searchParams.delete("return");
+  window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+}
+
 export default function LandingPage() {
   const searchParams = useSearchParams();
+  const returnTarget = useMemo(
+    () => resolveMemberDemoReturn(searchParams.get("return")),
+    [searchParams]
+  );
   const [profile, setProfile] = useState<DemoProfile | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authView, setAuthView] = useState<"login" | "register">("register");
@@ -43,11 +59,34 @@ export default function LandingPage() {
   }, [refreshSession]);
 
   useEffect(() => {
-    if (searchParams.get("login") === "1") {
-      setAuthView("login");
-      setAuthOpen(true);
-    }
-  }, [searchParams]);
+    let cancelled = false;
+
+    (async () => {
+      const wantsLogin = searchParams.get("login") === "1";
+      const hasReturn = Boolean(searchParams.get("return"));
+      if (!wantsLogin && !hasReturn) return;
+
+      const existing = await refreshSession();
+      if (cancelled) return;
+
+      if (existing) {
+        clearAuthQueryParams();
+        if (returnTarget) {
+          window.location.assign(returnTarget);
+        }
+        return;
+      }
+
+      if (wantsLogin) {
+        setAuthView("login");
+        setAuthOpen(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, refreshSession, returnTarget]);
 
   const openAuth = (view: "login" | "register") => {
     setAuthView(view);
@@ -64,29 +103,24 @@ export default function LandingPage() {
     await trackEvent("demo_launch", {
       properties: { demo: which, url },
     });
-    window.open(url, "_blank");
+    window.location.assign(url);
   };
 
   const onAuthed = async (p: DemoProfile) => {
     setProfile(p);
     await refreshSession();
-    const returnUrl = searchParams.get("return");
-    if (returnUrl) {
-      try {
-        const u = new URL(returnUrl);
-        if (u.hostname.endsWith("cercalabs.com")) {
-          window.location.href = returnUrl;
-          return;
-        }
-      } catch {
-        /* ignore invalid return */
-      }
+    clearAuthQueryParams();
+
+    if (returnTarget) {
+      window.location.assign(returnTarget);
+      return;
     }
     if (pendingDemo) {
       const d = pendingDemo;
       setPendingDemo(null);
       launchDemo(d);
     } else {
+      setAuthOpen(false);
       document.getElementById("demos")?.scrollIntoView({ behavior: "smooth" });
     }
   };
@@ -450,6 +484,7 @@ export default function LandingPage() {
       <AuthModal
         open={authOpen}
         initialView={authView}
+        redirectAfterAuth={returnTarget}
         onClose={() => setAuthOpen(false)}
         onAuthed={onAuthed}
       />

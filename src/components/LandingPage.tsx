@@ -7,13 +7,29 @@ import PreviewReel from "@/components/PreviewReel";
 import {
   MEMBER_DEMO_URL,
   AGENT_DEMO_URL,
-  resolveMemberDemoReturn,
+  resolveDemoReturn,
 } from "@/lib/constants";
+import {
+  clearGateRetry,
+  demoLaunchUrl,
+  fetchHandoffToken,
+  markGateRetry,
+  shouldAbortGateRetry,
+} from "@/lib/demo-launch";
 import { trackEvent } from "@/lib/analytics-client";
 
 type DemoKey = "member" | "agent";
 
-const HANDOFF_PARAM = "bc_handoff";
+const LAUNCH_COPY: Record<DemoKey, { title: string; sub: string }> = {
+  member: {
+    title: "Opening Member Experience…",
+    sub: "Securing your demo access and loading the member app.",
+  },
+  agent: {
+    title: "Opening Agent Portal…",
+    sub: "Securing your demo access and loading the retention workspace.",
+  },
+};
 
 function clearAuthQueryParams() {
   const url = new URL(window.location.href);
@@ -30,39 +46,27 @@ function clearAuthQueryParams() {
   window.history.replaceState({}, "", url.pathname + url.search + url.hash);
 }
 
-async function fetchMemberHandoffToken(): Promise<string | null> {
-  const res = await fetch("/api/auth/ensure-jwt", {
-    method: "POST",
-    credentials: "include",
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { token?: string };
-  return typeof data.token === "string" ? data.token : null;
+function demoUrlFor(which: DemoKey): string {
+  return which === "member" ? MEMBER_DEMO_URL : AGENT_DEMO_URL;
 }
 
-function memberDemoLaunchUrl(base: string, token: string): string {
-  const u = new URL(base);
-  u.searchParams.set(HANDOFF_PARAM, token);
-  return u.href;
-}
-
-async function goToMemberDemo(url: string): Promise<boolean> {
-  const loopKey = "bc_demo_return_attempt";
-  if (sessionStorage.getItem(loopKey)) {
-    sessionStorage.removeItem(loopKey);
-    return false;
-  }
-  const token = await fetchMemberHandoffToken();
-  if (!token) return false;
-  sessionStorage.setItem(loopKey, url);
-  window.location.assign(memberDemoLaunchUrl(url, token));
-  return true;
+function LaunchOverlay({ which }: { which: DemoKey }) {
+  const copy = LAUNCH_COPY[which];
+  return (
+    <div className="launch-overlay" role="status" aria-live="polite">
+      <div className="auth-loading-panel">
+        <div className="auth-spinner" aria-hidden="true" />
+        <div className="auth-loading-title">{copy.title}</div>
+        <div className="auth-loading-sub">{copy.sub}</div>
+      </div>
+    </div>
+  );
 }
 
 export default function LandingPage() {
   const searchParams = useSearchParams();
   const returnTarget = useMemo(
-    () => resolveMemberDemoReturn(searchParams.get("return")),
+    () => resolveDemoReturn(searchParams.get("return")),
     [searchParams]
   );
   const [profile, setProfile] = useState<DemoProfile | null>(null);
@@ -71,6 +75,8 @@ export default function LandingPage() {
   const [pendingDemo, setPendingDemo] = useState<DemoKey | null>(null);
   const [reelOpen, setReelOpen] = useState(false);
   const [reelKey, setReelKey] = useState<DemoKey | null>(null);
+  const [launching, setLaunching] = useState<DemoKey | null>(null);
+  const [launchError, setLaunchError] = useState("");
 
   const loggedIn = !!profile;
 
@@ -92,6 +98,22 @@ export default function LandingPage() {
     return next;
   }, []);
 
+  const goToDemo = useCallback(async (url: string): Promise<boolean> => {
+    const token = await fetchHandoffToken();
+    if (!token) return false;
+    window.location.assign(demoLaunchUrl(url, token));
+    return true;
+  }, []);
+
+  const openLaunchFailure = useCallback((which: DemoKey) => {
+    setLaunchError(
+      "We couldn't open the demo. Sign in again to refresh your access, and confirm DEMO_JWT_SECRET matches on landing and the demo project."
+    );
+    setPendingDemo(which);
+    setAuthView("login");
+    setAuthOpen(true);
+  }, []);
+
   useEffect(() => {
     refreshSession();
   }, [refreshSession]);
@@ -107,18 +129,29 @@ export default function LandingPage() {
       const existing = await refreshSession();
       if (cancelled) return;
 
-      if (existing) {
+      if (existing && returnTarget) {
         const bounced = searchParams.get("gate_bounce") === "1";
         clearAuthQueryParams();
-        if (returnTarget && !bounced) {
-          const ok = await goToMemberDemo(returnTarget);
-          if (!ok) {
-            setAuthView("login");
-            setAuthOpen(true);
-          }
-        } else {
-          sessionStorage.removeItem("bc_demo_return_attempt");
+
+        if (bounced && shouldAbortGateRetry()) {
+          openLaunchFailure(returnTarget.which);
+          return;
         }
+        if (bounced) markGateRetry();
+
+        setLaunching(returnTarget.which);
+        const ok = await goToDemo(returnTarget.url);
+        if (cancelled) return;
+        if (!ok) {
+          setLaunching(null);
+          openLaunchFailure(returnTarget.which);
+        }
+        return;
+      }
+
+      if (existing) {
+        clearAuthQueryParams();
+        clearGateRetry();
         return;
       }
 
@@ -131,59 +164,64 @@ export default function LandingPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, refreshSession, returnTarget]);
+  }, [searchParams, refreshSession, returnTarget, goToDemo, openLaunchFailure]);
 
   const openAuth = (view: "login" | "register") => {
+    setLaunchError("");
     setAuthView(view);
     setAuthOpen(true);
   };
 
   const launchDemo = async (which: DemoKey) => {
-    if (!profile) {
+    setLaunchError("");
+    clearGateRetry();
+
+    let activeProfile = profile;
+    if (!activeProfile) {
+      activeProfile = await refreshSession();
+    }
+    if (!activeProfile) {
       setPendingDemo(which);
       openAuth("register");
       return;
     }
-    const url = which === "member" ? MEMBER_DEMO_URL : AGENT_DEMO_URL;
-    await trackEvent("demo_launch", {
-      properties: { demo: which, url },
-    });
-    if (which === "member") {
-      const ok = await goToMemberDemo(url);
+
+    setLaunching(which);
+    try {
+      const url = demoUrlFor(which);
+      await trackEvent("demo_launch", {
+        properties: { demo: which, url },
+      });
+      const ok = await goToDemo(url);
       if (!ok) {
-        setPendingDemo(which);
-        setAuthView("login");
-        setAuthOpen(true);
+        setLaunching(null);
+        openLaunchFailure(which);
       }
-      return;
+    } catch {
+      setLaunching(null);
+      openLaunchFailure(which);
     }
-    const res = await fetch("/api/auth/ensure-jwt", {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!res.ok) {
-      setPendingDemo(which);
-      setAuthView("login");
-      setAuthOpen(true);
-      return;
-    }
-    window.location.assign(url);
   };
 
   const onAuthed = async (p: DemoProfile) => {
     setProfile(p);
     await refreshSession();
     clearAuthQueryParams();
+    clearGateRetry();
 
     if (returnTarget) {
-      const ok = await goToMemberDemo(returnTarget);
-      if (!ok) setAuthOpen(true);
+      setLaunching(returnTarget.which);
+      const ok = await goToDemo(returnTarget.url);
+      if (!ok) {
+        setLaunching(null);
+        setAuthOpen(true);
+      }
       return;
     }
     if (pendingDemo) {
       const d = pendingDemo;
       setPendingDemo(null);
-      launchDemo(d);
+      await launchDemo(d);
     } else {
       setAuthOpen(false);
       document.getElementById("demos")?.scrollIntoView({ behavior: "smooth" });
@@ -193,6 +231,7 @@ export default function LandingPage() {
   const signOut = async () => {
     await fetch("/api/auth/sign-out", { method: "POST", credentials: "include" });
     setProfile(null);
+    clearGateRetry();
   };
 
   const ctaDemos = () => {
@@ -223,6 +262,8 @@ export default function LandingPage() {
 
   return (
     <>
+      {launching && <LaunchOverlay which={launching} />}
+
       <nav>
         <a href="#" className="nav-logo" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0 }); }}>
           <div className="nav-mark">
@@ -283,7 +324,7 @@ export default function LandingPage() {
             team could reach by hand. Step inside the live demos to see exactly how it works.
           </p>
           <div className="hero-btns">
-            <button type="button" className="btn-g" onClick={ctaDemos}>
+            <button type="button" className="btn-g" onClick={ctaDemos} disabled={!!launching}>
               <svg viewBox="0 0 24 24">
                 <polygon points="5 3 19 12 5 21 5 3" />
               </svg>
@@ -424,6 +465,11 @@ export default function LandingPage() {
               email to unlock both.
             </p>
           </div>
+          {launchError && (
+            <div className="m-error show" style={{ maxWidth: 720, margin: "0 auto 20px" }}>
+              {launchError}
+            </div>
+          )}
           <div className="demo-grid">
             <div className="demo-card">
               <div className="demo-top">
@@ -453,13 +499,16 @@ export default function LandingPage() {
                       setReelKey("member");
                       setReelOpen(true);
                     }}
+                    disabled={!!launching}
                   >
                     Watch preview
                   </button>
                   <button
                     type="button"
-                    className={`btn-p${loggedIn ? "" : " demo-locked-btn"}`}
+                    className={`btn-p${loggedIn ? "" : " demo-locked-btn"}${launching === "member" ? " is-launching" : ""}`}
                     onClick={() => launchDemo("member")}
+                    disabled={!!launching}
+                    aria-busy={launching === "member"}
                   >
                     Launch
                   </button>
@@ -494,13 +543,16 @@ export default function LandingPage() {
                       setReelKey("agent");
                       setReelOpen(true);
                     }}
+                    disabled={!!launching}
                   >
                     Watch preview
                   </button>
                   <button
                     type="button"
-                    className={`btn-p${loggedIn ? "" : " demo-locked-btn"}`}
+                    className={`btn-p${loggedIn ? "" : " demo-locked-btn"}${launching === "agent" ? " is-launching" : ""}`}
                     onClick={() => launchDemo("agent")}
+                    disabled={!!launching}
+                    aria-busy={launching === "agent"}
                   >
                     Launch
                   </button>
@@ -518,7 +570,7 @@ export default function LandingPage() {
               Want to explore on your own?
             </h3>
             <p>Register, verify with a one-time email code, and walk through both demos.</p>
-            <button type="button" className="btn-g" onClick={ctaDemos}>
+            <button type="button" className="btn-g" onClick={ctaDemos} disabled={!!launching}>
               Launch the Live Demos
             </button>
           </div>
@@ -549,7 +601,7 @@ export default function LandingPage() {
       <AuthModal
         open={authOpen}
         initialView={authView}
-        redirectAfterAuth={returnTarget}
+        redirectAfterAuth={returnTarget?.url ?? null}
         onClose={() => setAuthOpen(false)}
         onAuthed={onAuthed}
       />

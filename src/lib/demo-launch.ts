@@ -1,0 +1,33 @@
+export const DEMO_HANDOFF_PARAM = "bc_handoff";
+export const GATE_FAIL_KEY = "bc_demo_gate_failed";
+
+export function demoLaunchUrl(base: string, token: string): string {
+  const u = new URL(base);
+  u.searchParams.set(DEMO_HANDOFF_PARAM, token);
+  return u.href;
+}
+
+export async function fetchHandoffToken(): Promise<string | null> {
+  const res = await fetch("/api/auth/ensure-jwt", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { token?: string };
+  return typeof data.token === "string" ? data.token : null;
+}
+
+export function shouldAbortGateRetry(): boolean {
+  if (typeof sessionStorage === "undefined") return false;
+  if (!sessionStorage.getItem(GATE_FAIL_KEY)) return false;
+  sessionStorage.removeItem(GATE_FAIL_KEY);
+  return true;
+}
+
+export function markGateRetry(): void {
+  sessionStorage?.setItem(GATE_FAIL_KEY, "1");
+}
+
+export function clearGateRetry(): void {
+  sessionStorage?.removeItem(GATE_FAIL_KEY);
+}

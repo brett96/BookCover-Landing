@@ -203,6 +203,11 @@ footer{background:#001E54;padding:42px 60px;color:rgba(255,255,255,.6);}
 .auth-btn-spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.35);border-top-color:white;border-radius:50%;animation:auth-spin .65s linear infinite;flex-shrink:0;}
 @keyframes auth-spin{to{transform:rotate(360deg);}}
 
+/* Demo launch loading */
+.launch-overlay{position:fixed;inset:0;z-index:9000;background:rgba(229,242,251,.92);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+.launch-overlay .auth-loading-panel{min-height:auto;padding:32px 20px;}
+.btn-p.is-launching,.btn-p:disabled{opacity:.88;cursor:not-allowed;}
+
 /* 2FA */
 .method-row{display:flex;gap:12px;margin-bottom:6px;}
 .method{flex:1;border:1.5px solid var(--border);border-radius:12px;padding:18px 14px;text-align:center;cursor:pointer;transition:all .15s;background:white;}

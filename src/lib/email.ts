@@ -56,3 +56,48 @@ export async function sendReportEmail(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   return sendHtmlEmail(to, subject, html);
 }
+
+export async function sendInquiryNotificationEmail(
+  to: string,
+  lead: {
+    name: string;
+    email: string;
+    company: string;
+    phone: string;
+    role: string;
+    message: string;
+    submittedAt: string;
+  }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const rows = [
+    ["Name", lead.name],
+    ["Email", lead.email],
+    ["Company", lead.company || "—"],
+    ["Phone", lead.phone || "—"],
+    ["Role", lead.role || "—"],
+    ["Message", lead.message || "—"],
+    ["Submitted", lead.submittedAt],
+  ]
+    .map(
+      ([k, v]) =>
+        `<tr><td style="padding:6px 12px;font-weight:600;color:#003087">${k}</td><td style="padding:6px 12px">${escapeHtml(String(v))}</td></tr>`
+    )
+    .join("");
+
+  return sendHtmlEmail(
+    to,
+    `BookCover contact: ${lead.name}`,
+    `
+      <p>New interest form submission from the BookCover landing site.</p>
+      <table style="border-collapse:collapse;font-family:sans-serif;font-size:14px">${rows}</table>
+    `
+  );
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}

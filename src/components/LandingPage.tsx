@@ -295,7 +295,7 @@ export default function LandingPage() {
           </div>
         </a>
         <div className="nav-right">
-          <a className="nav-link" href="https://www.cercalabs.com/contact" target="_blank" rel="noopener">
+          <a className="nav-link" href="/contact">
             Contact Us
           </a>
           {!loggedIn ? (

@@ -1,0 +1,268 @@
+body.contact-no-scroll {
+  overflow: hidden;
+}
+
+.contact-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, var(--sage) 0%, var(--mint) 60%);
+  padding: 48px 24px 64px;
+  display: flex;
+  justify-content: center;
+}
+
+.contact-wrap {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@media (max-width: 560px) {
+  .contact-page {
+    padding: 28px 16px 56px;
+  }
+}
+
+.contact-back {
+  font-family: "Nunito", sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--teal);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  transition: color 0.15s ease;
+}
+
+.contact-back:hover {
+  color: var(--teal-h);
+}
+
+.contact-card {
+  background: var(--white);
+  border: 1px solid var(--border-m);
+  border-radius: 18px;
+  padding: 40px 36px;
+  box-shadow: 0 14px 40px var(--shadow);
+}
+
+@media (max-width: 560px) {
+  .contact-card {
+    padding: 28px 22px;
+    border-radius: 14px;
+  }
+}
+
+.contact-card h1 {
+  font-family: "Nunito", sans-serif;
+  font-size: clamp(24px, 3vw, 30px);
+  font-weight: 900;
+  color: var(--forest);
+  letter-spacing: -0.4px;
+  margin-bottom: 10px;
+  line-height: 1.2;
+}
+
+.contact-card .sub {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--slate);
+  margin-bottom: 28px;
+}
+
+.contact-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.contact-field label {
+  font-family: "Nunito", sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--slate);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.contact-field label .req {
+  color: var(--teal);
+  margin-left: 2px;
+  text-transform: none;
+}
+
+.contact-field input[type="text"],
+.contact-field input[type="email"],
+.contact-field input[type="tel"],
+.contact-field select,
+.contact-field textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-family: "Open Sans", sans-serif;
+  font-size: 14px;
+  color: var(--forest);
+  background: white;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.contact-field input:focus,
+.contact-field select:focus,
+.contact-field textarea:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(0, 112, 185, 0.12);
+}
+
+.contact-field textarea {
+  resize: vertical;
+  min-height: 110px;
+  line-height: 1.6;
+}
+
+.contact-field select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236A8DAA' stroke-width='1.8' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+.contact-submit {
+  width: 100%;
+  margin-top: 8px;
+  padding: 14px 24px;
+  background: var(--teal);
+  color: white;
+  font-family: "Nunito", sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.12s;
+}
+
+.contact-submit:hover:not(:disabled) {
+  background: var(--teal-h);
+  transform: translateY(-1px);
+}
+
+.contact-submit:disabled {
+  background: var(--muted);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.contact-loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 48, 135, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.contact-loading-overlay[hidden] {
+  display: none;
+}
+
+.contact-loading-inner {
+  background: white;
+  border-radius: 14px;
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-shadow: 0 18px 50px rgba(0, 48, 135, 0.25);
+}
+
+.contact-loading-inner .auth-spinner {
+  width: 32px;
+  height: 32px;
+}
+
+.contact-loading-text {
+  font-family: "Nunito", sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--forest);
+}
+
+.contact-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 48, 135, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+  padding: 24px;
+}
+
+.contact-modal-backdrop[hidden] {
+  display: none;
+}
+
+.contact-modal {
+  width: 100%;
+  max-width: 420px;
+  background: white;
+  border-radius: 14px;
+  padding: 28px 28px 24px;
+  border: 1px solid var(--border-m);
+  box-shadow: 0 24px 60px rgba(0, 48, 135, 0.3);
+  text-align: center;
+}
+
+.contact-modal-title {
+  font-family: "Nunito", sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  color: var(--forest);
+  margin-bottom: 10px;
+}
+
+.contact-modal-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--slate);
+  margin-bottom: 14px;
+}
+
+.contact-modal-redirect {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.contact-modal-dismiss {
+  margin-top: 4px;
+  padding: 10px 22px;
+  background: var(--teal);
+  color: white;
+  font-family: "Nunito", sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.contact-modal-dismiss:hover {
+  background: var(--teal-h);
+}
+
+.contact-modal-backdrop.is-error .contact-modal-title {
+  color: var(--red);
+}

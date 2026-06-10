@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { buildDailyReportHtml } from "@/lib/reports";
+import { buildDailyReport } from "@/lib/reports";
+import { getReportConfig } from "@/lib/report-config";
 import { sendReportEmail } from "@/lib/email";
 
 export async function GET(req: Request) {
@@ -9,18 +10,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const recipients = (process.env.REPORT_EMAIL_TO ?? "")
-    .split(",")
-    .map((e) => e.trim())
-    .filter(Boolean);
+  const config = await getReportConfig();
+  const recipients = config.emailRecipients;
   if (recipients.length === 0) {
     return NextResponse.json(
-      { error: "REPORT_EMAIL_TO not configured" },
+      { error: "No report recipients configured (set REPORT_EMAIL_TO or save recipients in admin)" },
       { status: 503 }
     );
   }
 
-  const html = await buildDailyReportHtml();
+  const report = await buildDailyReport({ config });
+  const html = report.html;
   const subject = `BookCover Demo Usage — ${new Date().toLocaleDateString("en-US")}`;
   const sent = await sendReportEmail(recipients, subject, html);
   if (!sent.ok) {

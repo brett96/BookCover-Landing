@@ -3,11 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createUserWithEmailAndPassword,
-  sendPasswordResetEmail,
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { getFirebaseAuth, isFirebaseClientConfigured } from "@/lib/firebase/client";
-import { LANDING_URL } from "@/lib/constants";
 import { trackEvent } from "@/lib/analytics-client";
 
 export type DemoProfile = {
@@ -253,19 +251,8 @@ export default function AuthModal({
     }
   };
 
-  const passwordResetContinueUrl = () => {
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/reset-password`;
-    }
-    return `${LANDING_URL.replace(/\/$/, "")}/reset-password`;
-  };
-
   const doForgotPassword = async () => {
     clearError();
-    if (!isFirebaseClientConfigured()) {
-      setError("Authentication is not configured yet.");
-      return;
-    }
     const email = forgotEmail.trim().toLowerCase();
     if (!email) {
       setError("Enter the email address for your account.");
@@ -278,15 +265,21 @@ export default function AuthModal({
     setLoadingKind("reset");
     setBusy(true);
     try {
-      await sendPasswordResetEmail(getFirebaseAuth(), email, {
-        url: passwordResetContinueUrl(),
-        handleCodeInApp: true,
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
       });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof j.error === "string" ? j.error : "Could not send reset email."
+        );
+      }
       await trackEvent("password_reset_request", { properties: { email } });
       setResetSentTo(email);
-    } catch {
-      // Avoid revealing whether the account exists
-      setResetSentTo(email);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send reset email.");
     } finally {
       setBusy(false);
     }

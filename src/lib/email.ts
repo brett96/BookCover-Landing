@@ -49,6 +49,27 @@ export async function sendOtpEmail(
   );
 }
 
+export async function sendPasswordResetLinkEmail(
+  to: string,
+  resetLink: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!isSmtpConfigured() && process.env.NODE_ENV === "development") {
+    console.info(`[dev] Password reset for ${to}: ${resetLink}`);
+    return { ok: true };
+  }
+  const safeLink = escapeHtml(resetLink);
+  return sendHtmlEmail(
+    to,
+    "Reset your BookCover demo password",
+    `
+      <p>We received a request to reset the password for your BookCover demo account.</p>
+      <p><a href="${safeLink}" style="display:inline-block;padding:12px 20px;background:#0070b9;color:white;text-decoration:none;border-radius:8px;font-weight:bold;">Reset password</a></p>
+      <p style="font-size:13px;color:#555;">Or copy this link into your browser:<br><a href="${safeLink}">${safeLink}</a></p>
+      <p style="font-size:13px;color:#555;">This link expires after a short time. If you did not request a reset, you can ignore this email.</p>
+    `
+  );
+}
+
 export async function sendReportEmail(
   to: string[],
   subject: string,

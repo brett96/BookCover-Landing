@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import AuthModal, { type DemoProfile } from "@/components/AuthModal";
+import AuthModal, { type DemoProfile, type AuthView } from "@/components/AuthModal";
 import PreviewReel from "@/components/PreviewReel";
 import {
   MEMBER_DEMO_URL,
@@ -35,6 +35,7 @@ function clearAuthQueryParams() {
   const url = new URL(window.location.href);
   if (
     !url.searchParams.has("login") &&
+    !url.searchParams.has("forgot") &&
     !url.searchParams.has("return") &&
     !url.searchParams.has("gate_bounce") &&
     !url.searchParams.has("handoff_failed") &&
@@ -43,6 +44,7 @@ function clearAuthQueryParams() {
     return;
   }
   url.searchParams.delete("login");
+  url.searchParams.delete("forgot");
   url.searchParams.delete("return");
   url.searchParams.delete("gate_bounce");
   url.searchParams.delete("handoff_failed");
@@ -75,7 +77,7 @@ export default function LandingPage() {
   );
   const [profile, setProfile] = useState<DemoProfile | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
-  const [authView, setAuthView] = useState<"login" | "register">("register");
+  const [authView, setAuthView] = useState<AuthView>("register");
   const [pendingDemo, setPendingDemo] = useState<DemoKey | null>(null);
   const [reelOpen, setReelOpen] = useState(false);
   const [reelKey, setReelKey] = useState<DemoKey | null>(null);
@@ -130,6 +132,15 @@ export default function LandingPage() {
     refreshSession();
   }, [refreshSession]);
 
+  // Browser back from handoff/demo restores this page from bfcache with launching still set.
+  useEffect(() => {
+    const onPageShow = () => {
+      setLaunching(null);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -146,11 +157,19 @@ export default function LandingPage() {
       }
 
       const wantsLogin = searchParams.get("login") === "1";
+      const wantsForgot = searchParams.get("forgot") === "1";
       const hasReturn = Boolean(searchParams.get("return"));
-      if (!wantsLogin && !hasReturn) return;
+      if (!wantsLogin && !hasReturn && !wantsForgot) return;
 
       const existing = await refreshSession();
       if (cancelled) return;
+
+      if (wantsForgot && !existing) {
+        clearAuthQueryParams();
+        setAuthView("forgotPassword");
+        setAuthOpen(true);
+        return;
+      }
 
       if (existing && returnTarget) {
         const bounced = searchParams.get("gate_bounce") === "1";
@@ -188,7 +207,7 @@ export default function LandingPage() {
     };
   }, [searchParams, refreshSession, returnTarget, goToDemo, openLaunchFailure]);
 
-  const openAuth = (view: "login" | "register") => {
+  const openAuth = (view: AuthView) => {
     setLaunchError("");
     setAuthView(view);
     setAuthOpen(true);

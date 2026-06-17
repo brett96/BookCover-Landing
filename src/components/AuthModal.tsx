@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { getFirebaseAuth, isFirebaseClientConfigured } from "@/lib/firebase/client";
+import { LANDING_URL } from "@/lib/constants";
 import { trackEvent } from "@/lib/analytics-client";
 
 export type DemoProfile = {
@@ -15,13 +17,15 @@ export type DemoProfile = {
   biz: string;
 };
 
-type View = "login" | "register" | "2faCode" | "success";
+type View = "login" | "register" | "forgotPassword" | "2faCode" | "success";
 
-type LoadingKind = "register" | "login" | "verify" | "resend";
+export type AuthView = "login" | "register" | "forgotPassword";
+
+type LoadingKind = "register" | "login" | "verify" | "resend" | "reset";
 
 type Props = {
   open: boolean;
-  initialView: View;
+  initialView: AuthView;
   redirectAfterAuth?: string | null;
   onClose: () => void;
   onAuthed: (profile: DemoProfile) => void;
@@ -46,6 +50,10 @@ const LOADING_COPY: Record<
   resend: {
     title: "Sending a new code…",
     sub: "Check your inbox for another 6-digit verification code.",
+  },
+  reset: {
+    title: "Sending reset link…",
+    sub: "Check your inbox for a link to choose a new password.",
   },
 };
 
@@ -81,6 +89,8 @@ export default function AuthModal({
   const [idToken, setIdToken] = useState<string | null>(null);
   const [pendingProfile, setPendingProfile] = useState<DemoProfile | null>(null);
   const [masked, setMasked] = useState("");
+  const [resetSentTo, setResetSentTo] = useState("");
+  const [forgotEmail, setForgotEmail] = useState("");
   const codeRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
@@ -88,6 +98,8 @@ export default function AuthModal({
       setView(initialView);
       setError("");
       setBusy(false);
+      setResetSentTo("");
+      setForgotEmail("");
     }
   }, [open, initialView]);
 
@@ -241,6 +253,45 @@ export default function AuthModal({
     }
   };
 
+  const passwordResetContinueUrl = () => {
+    if (typeof window !== "undefined") {
+      return `${window.location.origin}/reset-password`;
+    }
+    return `${LANDING_URL.replace(/\/$/, "")}/reset-password`;
+  };
+
+  const doForgotPassword = async () => {
+    clearError();
+    if (!isFirebaseClientConfigured()) {
+      setError("Authentication is not configured yet.");
+      return;
+    }
+    const email = forgotEmail.trim().toLowerCase();
+    if (!email) {
+      setError("Enter the email address for your account.");
+      return;
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    setLoadingKind("reset");
+    setBusy(true);
+    try {
+      await sendPasswordResetEmail(getFirebaseAuth(), email, {
+        url: passwordResetContinueUrl(),
+        handleCodeInApp: true,
+      });
+      await trackEvent("password_reset_request", { properties: { email } });
+      setResetSentTo(email);
+    } catch {
+      // Avoid revealing whether the account exists
+      setResetSentTo(email);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const verifyCode = async () => {
     clearError();
     const code = codeRefs.current.map((i) => i?.value ?? "").join("");
@@ -335,7 +386,9 @@ export default function AuthModal({
       ? "Create Account"
       : view === "login"
         ? "Sign In"
-        : "Secure Verification";
+        : view === "forgotPassword"
+          ? "Reset Password"
+          : "Secure Verification";
 
   return (
     <div
@@ -388,6 +441,17 @@ export default function AuthModal({
                     Continue
                   </button>
                   <div className="m-foot">
+                    <a
+                      onClick={() => {
+                        clearError();
+                        setResetSentTo("");
+                        setForgotEmail(val("loginEmail"));
+                        setView("forgotPassword");
+                      }}
+                    >
+                      Forgot password?
+                    </a>
+                    {" · "}
                     New here?{" "}
                     <a
                       onClick={() => {
@@ -494,6 +558,63 @@ export default function AuthModal({
                       }}
                     >
                       Sign in
+                    </a>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {view === "forgotPassword" && (
+            <div className="mview show">
+              {busy ? (
+                <AuthLoadingPanel kind={loadingKind} />
+              ) : resetSentTo ? (
+                <>
+                  <div className="m-h">Check your email</div>
+                  <div className="m-p">
+                    If an account exists for <strong>{maskEmail(resetSentTo)}</strong>, we sent a
+                    link to reset your password. The link expires after a short time.
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-p full-btn"
+                    onClick={() => {
+                      setResetSentTo("");
+                      setView("login");
+                    }}
+                  >
+                    Back to sign in
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="m-h">Reset your password</div>
+                  <div className="m-p">
+                    Enter your account email and we&apos;ll send a link to choose a new password.
+                  </div>
+                  {error && <div className="m-error show">{error}</div>}
+                  <div className="field">
+                    <label>Email address</label>
+                    <input
+                      type="email"
+                      id="forgotEmail"
+                      placeholder="you@company.com"
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                    />
+                  </div>
+                  <button type="button" className="btn-p full-btn" onClick={doForgotPassword}>
+                    Send reset link
+                  </button>
+                  <div className="m-foot">
+                    <a
+                      onClick={() => {
+                        clearError();
+                        setView("login");
+                      }}
+                    >
+                      Back to sign in
                     </a>
                   </div>
                 </>

@@ -211,6 +211,7 @@ export function buildReportHtmlFromSummary(
 
   return `
     <h2>BookCover Demo — Daily Usage Report</h2>
+    <h3>Configure Report and View Additional Analytics at: https://book-cover-landing.vercel.app/admin </h3>
     <p>Period: ${periodStart.toISOString()} → ${periodEnd.toISOString()}</p>
     ${filterNote}
     <ul>

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { recordUsageEvent, parseRequestGeo, type SiteId } from "@/lib/tracking";
+import {
+  isKnownProduct,
+  deploymentAnalyticsProduct,
+} from "@/lib/analytics-config";
+import { recordUsageEvent, type SiteId } from "@/lib/tracking";
 import { getDemoSessionFromCookies } from "@/lib/demo-session";
 
 const SITES: SiteId[] = ["landing", "member", "agent"];
@@ -7,6 +11,7 @@ const SITES: SiteId[] = ["landing", "member", "agent"];
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
+      product?: string;
       site?: SiteId;
       eventType?: string;
       path?: string;
@@ -15,10 +20,20 @@ export async function POST(req: Request) {
       sessionId?: string;
       properties?: Record<string, unknown>;
     };
-    const site = body.site && SITES.includes(body.site) ? body.site : "landing";
+
+    const productRaw = body.product?.trim().toLowerCase();
+    const product =
+      productRaw && isKnownProduct(productRaw)
+        ? productRaw
+        : deploymentAnalyticsProduct();
+
+    const site =
+      body.site && SITES.includes(body.site) ? body.site : "landing";
+
     const session = await getDemoSessionFromCookies();
     await recordUsageEvent(
       {
+        product,
         site,
         eventType: body.eventType ?? "page_view",
         path: body.path,

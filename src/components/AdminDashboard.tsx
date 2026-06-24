@@ -12,12 +12,16 @@ type AnalyticsSummary = {
   registrations: number;
   logins: number;
   demoLaunches: number;
+  byProduct: Record<string, number>;
   bySite: Record<string, number>;
   byType: Record<string, number>;
 };
 
+type FilterOption = { id: string; label: string };
+
 type RecentEvent = {
   id: string;
+  product: string;
   site: string;
   eventType: string;
   path: string;
@@ -54,6 +58,10 @@ function textToList(raw: string): string[] {
     .filter(Boolean);
 }
 
+function labelForOption(id: string, options: FilterOption[]): string {
+  return options.find((o) => o.id === id)?.label ?? id;
+}
+
 export default function AdminDashboard() {
   const [tab, setTab] = useState<Tab>("analytics");
   const [authenticated, setAuthenticated] = useState(false);
@@ -67,6 +75,11 @@ export default function AdminDashboard() {
   const [loginBusy, setLoginBusy] = useState(false);
 
   const [period, setPeriod] = useState("24h");
+  const [productFilter, setProductFilter] = useState("all");
+  const [siteFilter, setSiteFilter] = useState("all");
+  const [filterLabel, setFilterLabel] = useState("");
+  const [productOptions, setProductOptions] = useState<FilterOption[]>([]);
+  const [siteOptions, setSiteOptions] = useState<FilterOption[]>([]);
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [periodLabel, setPeriodLabel] = useState("Last 24 hours");
   const [recent, setRecent] = useState<RecentEvent[]>([]);
@@ -92,21 +105,28 @@ export default function AdminDashboard() {
     return !!data.authenticated;
   }, []);
 
-  const loadAnalytics = useCallback(async (p: string) => {
-    setAnalyticsBusy(true);
-    try {
-      const res = await fetch(`/api/admin/analytics?period=${p}`, {
-        credentials: "include",
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      setSummary(data.summary);
-      setPeriodLabel(data.period?.label ?? "");
-      setRecent(data.recent ?? []);
-    } finally {
-      setAnalyticsBusy(false);
-    }
-  }, []);
+  const loadAnalytics = useCallback(
+    async (p: string, product: string, site: string) => {
+      setAnalyticsBusy(true);
+      try {
+        const params = new URLSearchParams({ period: p, product, site });
+        const res = await fetch(`/api/admin/analytics?${params}`, {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setSummary(data.summary);
+        setPeriodLabel(data.period?.label ?? "");
+        setRecent(data.recent ?? []);
+        setFilterLabel(data.filters?.label ?? "");
+        if (Array.isArray(data.products)) setProductOptions(data.products);
+        if (Array.isArray(data.sites)) setSiteOptions(data.sites);
+      } finally {
+        setAnalyticsBusy(false);
+      }
+    },
+    []
+  );
 
   const loadReportConfig = useCallback(async () => {
     const res = await fetch("/api/admin/report-config", { credentials: "include" });
@@ -127,7 +147,10 @@ export default function AdminDashboard() {
     async (draft = false) => {
       setPreviewBusy(true);
       try {
-        const params = new URLSearchParams();
+        const params = new URLSearchParams({
+          product: productFilter,
+          site: siteFilter,
+        });
         if (draft) {
           params.set("draft", "1");
           params.set("recipients", textToList(recipientsText).join(","));
@@ -145,23 +168,26 @@ export default function AdminDashboard() {
         setPreviewBusy(false);
       }
     },
-    [recipientsText, excludedIpsText, excludedCitiesText]
+    [recipientsText, excludedIpsText, excludedCitiesText, productFilter, siteFilter]
   );
 
   useEffect(() => {
     refreshSession().then((ok) => {
       if (ok) {
-        loadAnalytics(period);
+        loadAnalytics(period, productFilter, siteFilter);
         loadReportConfig();
       }
     });
-  }, [refreshSession, loadAnalytics, loadReportConfig, period]);
+  }, [refreshSession, loadAnalytics, loadReportConfig, period, productFilter, siteFilter]);
+
+  useEffect(() => {
+    if (authenticated && tab === "report") {
+      loadPreview(true);
+    }
+  }, [authenticated, tab, productFilter, siteFilter, loadPreview]);
 
   const switchTab = (next: Tab) => {
     setTab(next);
-    if (next === "report") {
-      loadPreview(true);
-    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -182,7 +208,7 @@ export default function AdminDashboard() {
       }
       setLoginPassword("");
       await refreshSession();
-      await loadAnalytics(period);
+      await loadAnalytics(period, productFilter, siteFilter);
       await loadReportConfig();
     } finally {
       setLoginBusy(false);
@@ -224,7 +250,7 @@ export default function AdminDashboard() {
           `Last saved ${new Date(cfg.updatedAt).toLocaleString()}${cfg.updatedBy ? ` by ${cfg.updatedBy}` : ""}`
         );
       }
-      await loadAnalytics(period);
+      await loadAnalytics(period, productFilter, siteFilter);
       await loadPreview(true);
     } finally {
       setSaveBusy(false);
@@ -347,23 +373,51 @@ export default function AdminDashboard() {
 
         {tab === "analytics" && (
           <div className="admin-pane on">
-            <div className="admin-toolbar">
+            <div className="admin-toolbar admin-toolbar-filters">
               <label className="admin-period">
                 Period{" "}
                 <select
                   value={period}
-                  onChange={(e) => {
-                    setPeriod(e.target.value);
-                    loadAnalytics(e.target.value);
-                  }}
+                  onChange={(e) => setPeriod(e.target.value)}
                 >
                   <option value="24h">Last 24 hours</option>
                   <option value="7d">Last 7 days</option>
                   <option value="30d">Last 30 days</option>
                 </select>
               </label>
+              <label className="admin-period">
+                Product{" "}
+                <select
+                  value={productFilter}
+                  onChange={(e) => setProductFilter(e.target.value)}
+                >
+                  {productOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="admin-period">
+                Site{" "}
+                <select
+                  value={siteFilter}
+                  onChange={(e) => setSiteFilter(e.target.value)}
+                >
+                  {siteOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {analyticsBusy && <span className="admin-muted">Refreshing…</span>}
             </div>
+            {filterLabel && (
+              <p className="admin-filter-label">
+                Showing: <strong>{filterLabel}</strong>
+              </p>
+            )}
 
             {summary && (
               <>
@@ -392,7 +446,35 @@ export default function AdminDashboard() {
                   </p>
                 )}
 
-                <div className="admin-grid-2">
+                <div className="admin-grid-3">
+                  <div>
+                    <h3 className="admin-section-title">By product</h3>
+                    <div className="tbl-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Product</th>
+                            <th>Count</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(summary.byProduct).map(([product, count]) => (
+                            <tr key={product}>
+                              <td>{labelForOption(product, productOptions)}</td>
+                              <td>{count}</td>
+                            </tr>
+                          ))}
+                          {Object.keys(summary.byProduct).length === 0 && (
+                            <tr>
+                              <td colSpan={2} className="empty">
+                                No events
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                   <div>
                     <h3 className="admin-section-title">By site</h3>
                     <div className="tbl-wrap">
@@ -406,7 +488,7 @@ export default function AdminDashboard() {
                         <tbody>
                           {Object.entries(summary.bySite).map(([site, count]) => (
                             <tr key={site}>
-                              <td>{site}</td>
+                              <td>{labelForOption(site, siteOptions)}</td>
                               <td>{count}</td>
                             </tr>
                           ))}
@@ -459,6 +541,7 @@ export default function AdminDashboard() {
                     <thead>
                       <tr>
                         <th>Time</th>
+                        <th>Product</th>
                         <th>Site</th>
                         <th>Event</th>
                         <th>Path</th>
@@ -475,7 +558,8 @@ export default function AdminDashboard() {
                               ? new Date(ev.occurredAt).toLocaleString()
                               : "—"}
                           </td>
-                          <td>{ev.site}</td>
+                          <td>{labelForOption(ev.product, productOptions)}</td>
+                          <td>{labelForOption(ev.site, siteOptions)}</td>
                           <td>
                             <span className={eventPillClass(ev.eventType)}>{ev.eventType}</span>
                           </td>
@@ -487,7 +571,7 @@ export default function AdminDashboard() {
                       ))}
                       {recent.length === 0 && (
                         <tr>
-                          <td colSpan={7} className="empty">
+                          <td colSpan={8} className="empty">
                             No events in this period
                           </td>
                         </tr>
@@ -503,9 +587,46 @@ export default function AdminDashboard() {
         {tab === "report" && (
           <div className="admin-pane on">
             <p className="admin-intro">
-              Configure the daily email report sent by the Vercel cron job. Exclude traffic from
-              specific IP addresses or cities (derived from Vercel geo headers at event time).
+              Configure the daily email report sent by the Vercel cron job (scheduled report always
+              includes <strong>all products</strong> and sites). Preview below uses the same product
+              and site filters as the Analytics tab. Exclude traffic by IP or city from included
+              events.
             </p>
+
+            <div className="admin-toolbar admin-toolbar-filters">
+              <label className="admin-period">
+                Preview product{" "}
+                <select
+                  value={productFilter}
+                  onChange={(e) => setProductFilter(e.target.value)}
+                >
+                  {productOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="admin-period">
+                Preview site{" "}
+                <select
+                  value={siteFilter}
+                  onChange={(e) => setSiteFilter(e.target.value)}
+                >
+                  {siteOptions.map((opt) => (
+                    <option key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {previewBusy && <span className="admin-muted">Refreshing preview…</span>}
+            </div>
+            {filterLabel && (
+              <p className="admin-filter-label">
+                Preview showing: <strong>{filterLabel}</strong>
+              </p>
+            )}
 
             <div className="admin-grid-2 admin-report-grid">
               <div>

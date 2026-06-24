@@ -198,8 +198,26 @@
   box-shadow: 0 0 0 3px rgba(0, 112, 185, 0.12);
 }
 
+.admin-toolbar-filters {
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+.admin-filter-label {
+  font-size: 13px;
+  color: var(--slate);
+  margin: -6px 0 16px;
+}
+
+.admin-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
 @media (max-width: 880px) {
-  .admin-grid-2 {
+  .admin-grid-2,
+  .admin-grid-3 {
     grid-template-columns: 1fr;
   }
 

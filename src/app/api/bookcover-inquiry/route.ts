@@ -5,7 +5,7 @@ import {
   type SheetInquiryPayload,
 } from "@/lib/sheets/append-inquiry";
 import { sendInquiryNotificationEmail } from "@/lib/email";
-import { recordUsageEvent } from "@/lib/tracking";
+import { recordUsageEvent, landingTrackEvent } from "@/lib/tracking";
 
 const EMAIL_RE =
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -122,7 +122,7 @@ export async function POST(req: Request) {
 
   try {
     await recordUsageEvent(
-      {
+      landingTrackEvent({
         site: "landing",
         eventType: "form_submit",
         path: "/contact",
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
         visitorId: data.visitorId ?? undefined,
         sessionId: data.sessionId ?? undefined,
         properties: { role: data.role, storedInSheet: sheetStored },
-      },
+      }),
       req
     );
   } catch (err) {

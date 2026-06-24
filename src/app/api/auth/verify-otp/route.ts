@@ -9,7 +9,7 @@ import {
 } from "@/lib/demo-session";
 import { signDemoJwt } from "@/lib/demo-jwt";
 import { SESSION_MAX_AGE_MS } from "@/lib/constants";
-import { recordUsageEvent } from "@/lib/tracking";
+import { recordUsageEvent, landingTrackEvent } from "@/lib/tracking";
 import { getAdminDb } from "@/lib/firebase/admin";
 
 export async function POST(req: Request) {
@@ -86,12 +86,12 @@ export async function POST(req: Request) {
 
   try {
     await recordUsageEvent(
-      {
+      landingTrackEvent({
         site: "landing",
         eventType: "login",
         userId: uid,
         email,
-      },
+      }),
       req
     );
   } catch (err) {

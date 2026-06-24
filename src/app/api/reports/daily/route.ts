@@ -19,7 +19,10 @@ export async function GET(req: Request) {
     );
   }
 
-  const report = await buildDailyReport({ config });
+  const report = await buildDailyReport({
+    config,
+    dimensions: { product: "all", site: "all" },
+  });
   const html = report.html;
   const subject = `BookCover Demo Usage — ${new Date().toLocaleDateString("en-US")}`;
   const sent = await sendReportEmail(recipients, subject, html);

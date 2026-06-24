@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminSession } from "@/lib/admin-auth";
+import { parseAnalyticsFilters } from "@/lib/analytics-config";
 import { buildDailyReport } from "@/lib/reports";
 import { getReportConfig, normalizeReportConfig } from "@/lib/report-config";
 
@@ -9,6 +10,7 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const useDraft = url.searchParams.get("draft") === "1";
+  const dimensions = parseAnalyticsFilters(url.searchParams);
 
   let config = await getReportConfig();
   if (useDraft) {
@@ -26,12 +28,13 @@ export async function GET(req: Request) {
     });
   }
 
-  const report = await buildDailyReport({ hours: 24, config });
+  const report = await buildDailyReport({ hours: 24, config, dimensions });
   return NextResponse.json({
     html: report.html,
     summary: report.summary,
     periodStart: report.periodStart,
     periodEnd: report.periodEnd,
     config: report.config,
+    filters: report.dimensionFilters,
   });
 }

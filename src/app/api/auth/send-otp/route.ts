@@ -6,7 +6,7 @@ import {
 } from "@/lib/firebase/admin";
 import { generateOtpCode, storeOtp } from "@/lib/otp";
 import { sendOtpEmail } from "@/lib/email";
-import { recordUsageEvent } from "@/lib/tracking";
+import { recordUsageEvent, landingTrackEvent } from "@/lib/tracking";
 
 export async function POST(req: Request) {
   const body = (await req.json()) as { idToken?: string };
@@ -60,12 +60,12 @@ export async function POST(req: Request) {
 
   try {
     await recordUsageEvent(
-      {
+      landingTrackEvent({
         site: "landing",
         eventType: "otp_sent",
         userId: uid,
         email,
-      },
+      }),
       req
     );
   } catch (err) {

@@ -5,18 +5,18 @@ import {
   getDemoSessionFromCookies,
   requestHostFrom,
 } from "@/lib/demo-session";
-import { recordUsageEvent } from "@/lib/tracking";
+import { recordUsageEvent, landingTrackEvent } from "@/lib/tracking";
 
 export async function POST(req: Request) {
   const session = await getDemoSessionFromCookies();
   if (session) {
     await recordUsageEvent(
-      {
+      landingTrackEvent({
         site: "landing",
         eventType: "logout",
         userId: session.uid,
         email: session.email,
-      },
+      }),
       req
     );
   }

@@ -1,11 +1,20 @@
 import { getAdminDb, isFirebaseAdminConfigured } from "@/lib/firebase/admin";
 import {
+  filterEventsByDimensions,
+  formatAnalyticsFilterLabel,
+  normalizeProduct,
+  normalizeSite,
+  PRODUCT_LABELS,
+  type AnalyticsDimensionFilters,
+} from "@/lib/analytics-config";
+import {
   getReportConfig,
   type ReportConfig,
   defaultReportConfig,
 } from "@/lib/report-config";
 
 export type UsageEventRow = {
+  product?: string;
   site?: string;
   eventType?: string;
   path?: string;
@@ -30,6 +39,7 @@ export type AnalyticsSummary = {
   registrations: number;
   logins: number;
   demoLaunches: number;
+  byProduct: Record<string, number>;
   bySite: Record<string, number>;
   byType: Record<string, number>;
   topPaths: { path: string; count: number }[];
@@ -43,6 +53,7 @@ export type ReportBuildResult = {
   periodStart: string;
   periodEnd: string;
   config: ReportConfig;
+  dimensionFilters: AnalyticsDimensionFilters;
 };
 
 function toDate(value: UsageEventRow["occurredAt"]): Date | null {
@@ -73,9 +84,22 @@ export function filterEvents(
   return events.filter((e) => !isEventExcluded(e, config));
 }
 
+export function applyAnalyticsFilters(
+  events: UsageEventRow[],
+  config: Pick<ReportConfig, "excludedIps" | "excludedCities">,
+  dimensions?: AnalyticsDimensionFilters
+): UsageEventRow[] {
+  let filtered = events;
+  if (dimensions) {
+    filtered = filterEventsByDimensions(filtered, dimensions);
+  }
+  return filterEvents(filtered, config);
+}
+
 export function aggregateEvents(events: UsageEventRow[]): AnalyticsSummary {
   const byType: Record<string, number> = {};
   const bySite: Record<string, number> = {};
+  const byProduct: Record<string, number> = {};
   const paths: Record<string, number> = {};
   const cities: Record<string, number> = {};
   const countries: Record<string, number> = {};
@@ -88,8 +112,13 @@ export function aggregateEvents(events: UsageEventRow[]): AnalyticsSummary {
   for (const e of events) {
     const t = e.eventType ?? "unknown";
     byType[t] = (byType[t] ?? 0) + 1;
-    const s = e.site ?? "unknown";
-    bySite[s] = (bySite[s] ?? 0) + 1;
+
+    const siteKey = normalizeSite(e.site);
+    bySite[siteKey] = (bySite[siteKey] ?? 0) + 1;
+
+    const productKey = normalizeProduct(e.product);
+    byProduct[productKey] = (byProduct[productKey] ?? 0) + 1;
+
     if (e.path) paths[e.path] = (paths[e.path] ?? 0) + 1;
     if (e.visitorId) visitors.add(e.visitorId);
     if (e.email) emails.add(e.email);
@@ -125,6 +154,7 @@ export function aggregateEvents(events: UsageEventRow[]): AnalyticsSummary {
     registrations,
     logins,
     demoLaunches,
+    byProduct,
     bySite,
     byType,
     topPaths,
@@ -181,11 +211,11 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function tableRows(entries: Record<string, number>): string {
+function tableRows(entries: Record<string, number>, labelFn?: (k: string) => string): string {
   return (
     Object.entries(entries)
       .sort((a, b) => b[1] - a[1])
-      .map(([k, n]) => `<tr><td>${escapeHtml(k)}</td><td>${n}</td></tr>`)
+      .map(([k, n]) => `<tr><td>${escapeHtml(labelFn ? labelFn(k) : k)}</td><td>${n}</td></tr>`)
       .join("") || `<tr><td colspan="2">None</td></tr>`
   );
 }
@@ -197,21 +227,34 @@ export function buildReportHtmlFromSummary(
     periodEnd: Date;
     config: ReportConfig;
     excludedCount: number;
+    dimensionFilters?: AnalyticsDimensionFilters;
   }
 ): string {
-  const { periodStart, periodEnd, config, excludedCount } = options;
+  const { periodStart, periodEnd, config, excludedCount, dimensionFilters } = options;
   const topPaths = summary.topPaths
     .map(({ path, count }) => `<li>${escapeHtml(path)} — ${count}</li>`)
     .join("");
 
+  const filterParts: string[] = [];
+  if (dimensionFilters) {
+    filterParts.push(formatAnalyticsFilterLabel(dimensionFilters));
+  }
+  if (config.excludedIps.length > 0 || config.excludedCities.length > 0) {
+    filterParts.push(
+      `${config.excludedIps.length} excluded IP(s), ${config.excludedCities.length} excluded city/cities (${excludedCount} event(s) removed)`
+    );
+  }
   const filterNote =
-    config.excludedIps.length > 0 || config.excludedCities.length > 0
-      ? `<p><em>Filters applied: ${config.excludedIps.length} excluded IP(s), ${config.excludedCities.length} excluded city/cities. ${excludedCount} event(s) removed from this report.</em></p>`
+    filterParts.length > 0
+      ? `<p><em>Filters applied: ${escapeHtml(filterParts.join("; "))}.</em></p>`
       : "";
+
+  const productLabel = (key: string) =>
+    PRODUCT_LABELS[key as keyof typeof PRODUCT_LABELS] ?? key;
 
   return `
     <h2>BookCover Demo — Daily Usage Report</h2>
-    <h3>Configure Report and View Additional Analytics at: https://book-cover-landing.vercel.app/admin </h3>
+    <h3>Configure Report and View Additional Analytics at: https://bookcover.cercalabs.com/admin </h3>
     <p>Period: ${periodStart.toISOString()} → ${periodEnd.toISOString()}</p>
     ${filterNote}
     <ul>
@@ -222,6 +265,8 @@ export function buildReportHtmlFromSummary(
       <li><strong>Logins:</strong> ${summary.logins}</li>
       <li><strong>Demo launches:</strong> ${summary.demoLaunches}</li>
     </ul>
+    <h3>By product</h3>
+    <table border="1" cellpadding="6"><tr><th>Product</th><th>Count</th></tr>${tableRows(summary.byProduct, productLabel)}</table>
     <h3>By site</h3>
     <table border="1" cellpadding="6"><tr><th>Site</th><th>Count</th></tr>${tableRows(summary.bySite)}</table>
     <h3>By event type</h3>
@@ -236,11 +281,13 @@ export function buildReportHtmlFromSummary(
 export async function buildDailyReport(options?: {
   hours?: number;
   config?: ReportConfig;
+  dimensions?: AnalyticsDimensionFilters;
 }): Promise<ReportBuildResult> {
   const hours = options?.hours ?? 24;
   const periodEnd = new Date();
   const periodStart = new Date(Date.now() - hours * 60 * 60 * 1000);
   const config = options?.config ?? (await getReportConfig());
+  const dimensionFilters = options?.dimensions ?? { product: "all", site: "all" };
 
   if (!isFirebaseAdminConfigured()) {
     const empty = aggregateEvents([]);
@@ -250,14 +297,16 @@ export async function buildDailyReport(options?: {
       periodStart: periodStart.toISOString(),
       periodEnd: periodEnd.toISOString(),
       config: config.emailRecipients.length ? config : defaultReportConfig(),
+      dimensionFilters,
     };
   }
 
   const allEvents = await fetchUsageEventsSince(periodStart);
-  const excludedCount = allEvents.filter((e) =>
-    isEventExcluded(e, config)
-  ).length;
-  const events = filterEvents(allEvents, config);
+  const afterDimensions = dimensionFilters
+    ? filterEventsByDimensions(allEvents, dimensionFilters)
+    : allEvents;
+  const excludedCount = afterDimensions.filter((e) => isEventExcluded(e, config)).length;
+  const events = applyAnalyticsFilters(allEvents, config, dimensionFilters);
   const summary = aggregateEvents(events);
   summary.excludedEvents = excludedCount;
 
@@ -267,11 +316,16 @@ export async function buildDailyReport(options?: {
       periodEnd,
       config,
       excludedCount,
+      dimensionFilters:
+        dimensionFilters.product !== "all" || dimensionFilters.site !== "all"
+          ? dimensionFilters
+          : undefined,
     }),
     summary,
     periodStart: periodStart.toISOString(),
     periodEnd: periodEnd.toISOString(),
     config,
+    dimensionFilters,
   };
 }
 
@@ -293,3 +347,5 @@ export function parseAnalyticsPeriod(
       return { hours: 24, label: "Last 24 hours" };
   }
 }
+
+export { parseAnalyticsFilters, formatAnalyticsFilterLabel } from "@/lib/analytics-config";

@@ -2,12 +2,6 @@
 
 Marketing landing page with Firebase registration, email OTP verification, and gated links to the Member and Agent demo sites.
 
-## Deploy overview
+**Setup, deployment, Firebase, SMTP, and env vars:** see [DEV.md](DEV.md).
 
-Three separate Vercel projects share one Firebase project and one `DEMO_JWT_SECRET`:
-
-| Vercel project | Root folder | Domain |
-|----------------|-------------|--------|
-| Landing | This repo | `bookcover.cercalabs.com` |
-| Member demo | `BCMemberDemo/web` | `bcmemberdemo.cercalabs.com` |
-| Agent demo | `BookCover Agent Portal Demo/bookcover-agent-portal` | `bcagentportaldemo.cercalabs.com` |
+Live at [bookcover.cercalabs.com](https://bookcover.cercalabs.com) · Member demo · Agent demo (linked after registration).

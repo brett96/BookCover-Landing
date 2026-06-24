@@ -1,14 +1,21 @@
 import { UAParser } from "ua-parser-js";
 import {
+  resolveIngestProduct,
+  resolveIngestSite,
+  type ProductSlug,
+  type SiteSlug,
+} from "@/lib/analytics-config";
+import {
   getAdminDb,
   isFirebaseAdminConfigured,
   isFirestoreNotFoundError,
   FIRESTORE_SETUP_HINT,
 } from "@/lib/firebase/admin";
 
-export type SiteId = "landing" | "member" | "agent";
+export type SiteId = SiteSlug;
 
 export type UsageEventInput = {
+  product?: ProductSlug;
   site: SiteId;
   eventType: string;
   path?: string;
@@ -74,9 +81,12 @@ export async function recordUsageEvent(
   input: UsageEventInput,
   req?: Request
 ): Promise<void> {
+  const product = resolveIngestProduct(input.product);
+  const site = resolveIngestSite(input.site);
+
   if (!isFirebaseAdminConfigured()) {
     if (process.env.NODE_ENV === "development") {
-      console.info("[track]", input);
+      console.info("[track]", { ...input, product, site });
     }
     return;
   }
@@ -84,6 +94,8 @@ export async function recordUsageEvent(
   const db = getAdminDb();
   const doc = omitUndefined({
     ...input,
+    product,
+    site,
     ...geo,
     path: input.path?.slice(0, 2048) ?? "",
     eventType: input.eventType.slice(0, 32),
@@ -125,4 +137,15 @@ export async function saveDemoUserProfile(
     updatedAt: new Date(),
   });
   await db.collection("demoUsers").doc(uid).set(doc, { merge: true });
+}
+
+/** Server-side events from the landing deployment. */
+export function landingTrackEvent(
+  partial: Omit<UsageEventInput, "product">
+): UsageEventInput {
+  return {
+    ...partial,
+    product: "bookcover-landing",
+    site: partial.site ?? "landing",
+  };
 }

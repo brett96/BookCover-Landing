@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createPasswordResetLink } from "@/lib/password-reset";
 import { sendPasswordResetLinkEmail } from "@/lib/email";
 import { isFirebaseAdminConfigured } from "@/lib/firebase/admin";
-import { recordUsageEvent, parseRequestGeo } from "@/lib/tracking";
+import { recordUsageEvent, landingTrackEvent } from "@/lib/tracking";
 
 export async function POST(req: Request) {
   if (!isFirebaseAdminConfigured()) {
@@ -36,12 +36,12 @@ export async function POST(req: Request) {
         );
       }
       await recordUsageEvent(
-        {
+        landingTrackEvent({
           site: "landing",
           eventType: "password_reset_request",
           email,
           properties: { channel: "smtp" },
-        },
+        }),
         req
       );
     }
